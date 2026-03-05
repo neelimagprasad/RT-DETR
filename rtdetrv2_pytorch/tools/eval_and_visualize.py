@@ -19,6 +19,8 @@ import colorsys
 import copy
 import json
 import math
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,9 @@ import torch
 import torchvision
 from PIL import Image, ImageDraw, ImageFile
 from pycocotools.cocoeval import COCOeval
+
+# Match tools/train.py behavior so `src.*` imports work from repo root.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from src.core import YAMLConfig, create
 
