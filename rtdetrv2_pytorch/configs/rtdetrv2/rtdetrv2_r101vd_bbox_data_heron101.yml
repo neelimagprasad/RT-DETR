@@ -1,0 +1,24 @@
+__include__: [
+  './rtdetrv2_r101vd_6x_coco.yml',
+]
+
+# Finetune an RT-DETRv2-R101 (hidden_dim=384) model on local bbox_data COCO JSON.
+# This config is designed to be compatible with Docling Heron-101 weights (HF).
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101
+
+num_classes: 17
+remap_mscoco_category: False
+
+train_dataloader:
+  total_batch_size: 1
+  dataset:
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+
+val_dataloader:
+  total_batch_size: 1
+  dataset:
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+

@@ -1,0 +1,26 @@
+__include__: [
+  './rtdetrv2_r18vd_120e_coco.yml',
+]
+
+# Finetune RT-DETRv2-S on local bbox_data COCO JSON.
+# Paths below are relative to the repo root (so you can run from /Users/.../RT-DETR).
+
+output_dir: ./output/rtdetrv2_r18vd_bbox_data
+
+# Your COCO JSON has category ids 0..16.
+num_classes: 17
+remap_mscoco_category: False
+
+train_dataloader:
+  # Smaller batch size is usually safer for large (300 DPI) pages.
+  total_batch_size: 2
+  dataset:
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+
+val_dataloader:
+  total_batch_size: 2
+  dataset:
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+

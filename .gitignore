@@ -169,4 +169,8 @@ test.py
 rtdetr_pytorch/output/
 rtdetr_pytorch/dataset/
 rtdetrv2_pytorch/output/
-rtdetrv2_pytorch/dataset/
+# Keep generated datasets out of git, but DO track small dataset tooling scripts.
+rtdetrv2_pytorch/dataset/**
+!rtdetrv2_pytorch/dataset/
+!rtdetrv2_pytorch/dataset/*.py
+!rtdetrv2_pytorch/dataset/readme.md
