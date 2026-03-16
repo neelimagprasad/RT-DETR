@@ -35,9 +35,9 @@ optimizer:
   lr: 0.0002
 
 lr_scheduler:
-  type: CosineAnnealingLR
-  T_max: 60
-  eta_min: 0.000001
+  type: MultiStepLR
+  milestones: [20, 40]
+  gamma: 0.2
 
 # Keep warmup very short for tiny fine-tuning runs so LR ramps up within this job.
 lr_warmup_scheduler:
