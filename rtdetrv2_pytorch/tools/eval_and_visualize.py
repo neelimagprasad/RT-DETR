@@ -85,6 +85,8 @@ def _draw_boxes(
     id_to_name: dict[int, str],
     score_threshold: float,
     draw_gt: bool,
+    gt_box_width: int,
+    pred_box_width: int,
 ) -> Image.Image:
     out = image.convert("RGB").copy()
     draw = ImageDraw.Draw(out)
@@ -95,7 +97,7 @@ def _draw_boxes(
             xyxy = [x, y, x + w, y + h]
             cid = int(ann["category_id"])
             color = _category_color(cid)
-            draw.rectangle(xyxy, outline=color, width=2)
+            draw.rectangle(xyxy, outline=color, width=gt_box_width)
             draw.text((x, max(0, y - 14)), f"GT {id_to_name.get(cid, cid)}", fill=color)
 
     for det in pred_boxes:
@@ -106,7 +108,7 @@ def _draw_boxes(
         xyxy = [x, y, x + w, y + h]
         cid = int(det["category_id"])
         color = _category_color(cid)
-        draw.rectangle(xyxy, outline=color, width=3)
+        draw.rectangle(xyxy, outline=color, width=pred_box_width)
         label = f"{id_to_name.get(cid, cid)} {score:.2f}"
         draw.text((x, max(0, y - 14)), label, fill=color)
 
@@ -179,6 +181,8 @@ def main(args: argparse.Namespace) -> None:
                     id_to_name=id_to_name,
                     score_threshold=float(args.vis_score_threshold),
                     draw_gt=args.draw_gt,
+                    gt_box_width=int(args.gt_box_width),
+                    pred_box_width=int(args.pred_box_width),
                 )
                 vis.save(vis_dir / info["file_name"])
                 saved_vis += 1
@@ -240,6 +244,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-score-threshold", type=float, default=0.0, help="Threshold for COCO eval detections.")
     parser.add_argument("--save-vis-dir", type=str, default=None, help="Directory to save prediction visualizations.")
     parser.add_argument("--vis-score-threshold", type=float, default=0.4, help="Threshold for drawn predictions.")
+    parser.add_argument("--pred-box-width", type=int, default=5, help="Line width for predicted boxes.")
+    parser.add_argument("--gt-box-width", type=int, default=4, help="Line width for GT boxes when --draw-gt is used.")
     parser.add_argument("--max-vis-images", type=int, default=50, help="Max images to visualize.")
     parser.add_argument("--draw-gt", action="store_true", help="Also draw GT boxes on the visualization.")
     parser.add_argument("--results-json", type=str, default=None, help="Optional path to save raw detection JSON.")

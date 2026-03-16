@@ -22,6 +22,23 @@ val_dataloader:
     img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
     ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
 
+# Use a stronger fine-tuning LR on the task-specific layers while keeping the
+# pretrained backbone more conservative.
+optimizer:
+  params:
+    -
+      params: '^(?=.*backbone)(?!.*norm|bn).*$'
+      lr: 0.00002
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
+      weight_decay: 0.
+  lr: 0.0002
+
+lr_scheduler:
+  type: CosineAnnealingLR
+  T_max: 60
+  eta_min: 0.000001
+
 # Keep warmup very short for tiny fine-tuning runs so LR ramps up within this job.
 lr_warmup_scheduler:
   warmup_duration: 20
