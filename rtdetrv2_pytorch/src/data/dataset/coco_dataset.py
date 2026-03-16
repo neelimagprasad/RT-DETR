@@ -20,6 +20,9 @@ __all__ = ['CocoDetection']
 
 torchvision.disable_beta_transforms_warning()
 
+# These training images are trusted high-resolution document renders.
+Image.MAX_IMAGE_PIXELS = None
+
 @register()
 class CocoDetection(FasterCocoDetection, DetDataset):
     __inject__ = ['transforms', ]

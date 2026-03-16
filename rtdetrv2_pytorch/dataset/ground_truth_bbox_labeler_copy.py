@@ -46,9 +46,19 @@ DATASET_DIR = Path(__file__).resolve().parent
 
 WINDOW_NAME = "COCO BBox Labeler"
 DISPLAY_MAX_DIM = 1600  # downscale for display if larger
-COLOR_BOX = (0, 184, 212)  # BGR
-COLOR_EDIT = (229, 136, 30)  # BGR
-COLOR_NEW = (30, 136, 229)  # BGR (new boxes committed this session)
+COLOR_BOX = (0, 0, 255)  # BGR: red
+COLOR_EDIT = (0, 0, 255)  # BGR: red while dragging
+COLOR_NEW = (255, 0, 0)  # BGR: blue for newly committed boxes this session
+COLOR_TEXT = (10, 10, 10)  # BGR
+
+HUD_BG = (245, 245, 245)  # BGR
+HUD_BORDER = (60, 60, 60)  # BGR
+HUD_TEXT = COLOR_TEXT
+HUD_FONT_SCALE = 0.42
+HUD_THICKNESS = 1
+HUD_PAD_X = 14
+HUD_PAD_Y = 10
+HUD_LINE_GAP = 6
 
 
 @dataclass
@@ -88,8 +98,47 @@ def _resize_for_display(img: np.ndarray) -> tuple[np.ndarray, float]:
     return resized, scale
 
 
-def _draw_text(img: np.ndarray, text: str, x: int, y: int, *, scale: float = 0.7, thickness: int = 2) -> None:
-    cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (10, 10, 10), thickness, cv2.LINE_AA)
+def _draw_text(
+    img: np.ndarray,
+    text: str,
+    x: int,
+    y: int,
+    *,
+    scale: float = 0.7,
+    thickness: int = 2,
+    color: tuple[int, int, int] = COLOR_TEXT,
+) -> None:
+    cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+
+
+def _with_bottom_hud(img: np.ndarray, lines: list[str]) -> np.ndarray:
+    """Append a bottom HUD band for UI text so it does not cover the image."""
+    if not lines:
+        return img
+    h, w = img.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    sizes = [cv2.getTextSize(t, font, HUD_FONT_SCALE, HUD_THICKNESS)[0] for t in lines]
+    line_h = (max((s[1] for s in sizes), default=0) or 0) + 2
+    hud_h = HUD_PAD_Y * 2 + len(lines) * line_h + (len(lines) - 1) * HUD_LINE_GAP
+
+    canvas = np.empty((h + hud_h, w, 3), dtype=img.dtype)
+    canvas[:h, :w] = img
+    canvas[h:, :] = HUD_BG
+    cv2.rectangle(canvas, (0, h), (w - 1, h + hud_h - 1), HUD_BORDER, thickness=1)
+
+    y = h + HUD_PAD_Y + line_h
+    for t in lines:
+        _draw_text(
+            canvas,
+            t,
+            HUD_PAD_X,
+            y,
+            scale=HUD_FONT_SCALE,
+            thickness=HUD_THICKNESS,
+            color=HUD_TEXT,
+        )
+        y += line_h + HUD_LINE_GAP
+    return canvas
 
 
 def _draw_bbox(img: np.ndarray, b: BBox, *, color: tuple[int, int, int], thickness: int = 3) -> None:
@@ -240,15 +289,11 @@ def _add_boxes_in_window(
             _draw_bbox(overlay, b, color=COLOR_EDIT, thickness=4)
         disp, scale = _resize_for_display(overlay)
         state["scale"] = scale
-        _draw_text(
-            disp,
-            "ADD MODE: drag=draw | Enter=commit | Esc=done | n/→ next | p/← prev | Backspace=undo | x=clear",
-            20,
-            40,
-            scale=0.6,
-        )
-        _draw_text(disp, f"Existing: {len(existing_boxes)}  New (this add): {len(committed)}", 20, 70, scale=0.55)
-        cv2.imshow(window_name, disp)
+        hud_lines = [
+            "ADD MODE: click-drag to draw | Enter=commit | Esc=done | n/→ next | p/← prev | Backspace=undo | x=clear",
+            f"Existing: {len(existing_boxes)}  New (this add): {len(committed)}",
+        ]
+        cv2.imshow(window_name, _with_bottom_hud(disp, hud_lines))
         key = cv2.waitKey(20) & 0xFF
         if key in (27, ord("q")):  # Esc / q
             return committed, 0
@@ -336,15 +381,11 @@ def main() -> None:
                 _draw_bbox(overlay, BBox(x0=x, y0=y, x1=x + bw, y1=y + bh), color=COLOR_BOX, thickness=3)
 
         disp, _scale = _resize_for_display(overlay)
-        _draw_text(disp, f"{idx+1}/{len(paths)}  {img_path.name}", 20, 40, scale=0.6)
-        _draw_text(
-            disp,
-            "n/→ next | p/← prev | a add | Backspace del last | x clear | s save | q/Esc quit",
-            20,
-            70,
-            scale=0.5,
-        )
-        cv2.imshow(WINDOW_NAME, disp)
+        hud_lines = [
+            f"{idx+1}/{len(paths)}  {img_path.name}",
+            "n/→ next | p/← prev | a add mode | Backspace del last | x clear | s save | q/Esc quit",
+        ]
+        cv2.imshow(WINDOW_NAME, _with_bottom_hud(disp, hud_lines))
         key = cv2.waitKey(0) & 0xFF
 
         if key in (27, ord("q")):  # ESC or q

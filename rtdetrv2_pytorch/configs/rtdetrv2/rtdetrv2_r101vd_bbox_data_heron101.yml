@@ -22,3 +22,7 @@ val_dataloader:
     img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
     ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
 
+# Keep warmup very short for tiny fine-tuning runs so LR ramps up within this job.
+lr_warmup_scheduler:
+  warmup_duration: 20
+
