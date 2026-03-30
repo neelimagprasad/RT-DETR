@@ -36,10 +36,10 @@ optimizer:
 
 lr_scheduler:
   type: MultiStepLR
-  milestones: [20, 40]
+  milestones: [120, 240, 320]
   gamma: 0.2
 
-# Keep warmup very short for tiny fine-tuning runs so LR ramps up within this job.
+# Use a longer warmup and later LR drops for the larger 400-epoch training run.
 lr_warmup_scheduler:
-  warmup_duration: 20
+  warmup_duration: 100
 
