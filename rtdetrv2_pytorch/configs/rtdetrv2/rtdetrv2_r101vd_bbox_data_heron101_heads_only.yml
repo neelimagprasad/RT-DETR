@@ -1,0 +1,10 @@
+__include__: [
+  './rtdetrv2_r101vd_bbox_data_heron101.yml',
+]
+
+# Head-scope experiment: train only the box/class heads while freezing the
+# shared trunk.
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_heads_only
+find_unused_parameters: True
+freeze_mode: heads_only

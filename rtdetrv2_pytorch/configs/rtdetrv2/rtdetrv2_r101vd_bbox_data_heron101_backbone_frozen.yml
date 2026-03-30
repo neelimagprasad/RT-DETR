@@ -1,0 +1,12 @@
+__include__: [
+  './rtdetrv2_r101vd_bbox_data_heron101.yml',
+]
+
+# Backbone-scope experiment: freeze the entire ResNet backbone and train the
+# encoder/decoder heads on the bbox_data split.
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_backbone_frozen
+
+PResNet:
+  freeze_at: 4
+  freeze_norm: True

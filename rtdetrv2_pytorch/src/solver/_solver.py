@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from datetime import datetime
 from pathlib import Path 
+import re
 from typing import Dict
 import atexit
 
@@ -39,6 +40,8 @@ class BaseSolver(object):
             print(f'tuning checkpoint from {self.cfg.tuning}')
             self.load_tuning_state(self.cfg.tuning)
 
+        self._apply_freeze_settings()
+
         self.model = dist_utils.warp_model(self.model.to(device), sync_bn=cfg.sync_bn, \
             find_unused_parameters=cfg.find_unused_parameters)
 
@@ -59,6 +62,64 @@ class BaseSolver(object):
             atexit.register(self.writer.close)
             if dist_utils.is_main_process():
                 self.writer.add_text(f'config', '{:s}'.format(cfg.__repr__()), 0)
+
+    def _apply_freeze_settings(self):
+        patterns = []
+        freeze_mode = getattr(self.cfg, 'freeze_mode', '') or ''
+
+        preset_patterns = {
+            'freeze_classifier': [
+                r'^decoder\.enc_score_head\.',
+                r'^decoder\.dec_score_head\.',
+                r'^decoder\.denoising_class_embed\.',
+            ],
+            'freeze_bbox': [
+                r'^decoder\.enc_bbox_head\.',
+                r'^decoder\.dec_bbox_head\.',
+            ],
+            'heads_only': [
+                r'^backbone\.',
+                r'^encoder\.',
+                r'^decoder\.input_proj\.',
+                r'^decoder\.encoder\.',
+                r'^decoder\.decoder\.',
+                r'^decoder\.enc_output\.',
+                r'^decoder\.query_pos_head\.',
+            ],
+        }
+
+        if freeze_mode:
+            assert freeze_mode in preset_patterns, \
+                f'Unsupported freeze_mode: {freeze_mode}. Expected one of {list(preset_patterns.keys())}'
+            patterns.extend(preset_patterns[freeze_mode])
+
+        extra_patterns = getattr(self.cfg, 'freeze_modules', None) or []
+        patterns.extend(extra_patterns)
+
+        if not patterns:
+            return
+
+        frozen_names = []
+        pattern_hits = {pattern: 0 for pattern in patterns}
+
+        for name, param in self.model.named_parameters():
+            if any(re.findall(pattern, name) for pattern in patterns):
+                param.requires_grad = False
+                frozen_names.append(name)
+                for pattern in patterns:
+                    if re.findall(pattern, name):
+                        pattern_hits[pattern] += 1
+
+        total_params = sum(p.numel() for p in self.model.parameters())
+        frozen_params = sum(p.numel() for p in self.model.parameters() if not p.requires_grad)
+        trainable_params = total_params - frozen_params
+
+        print(f'Applied freeze settings: freeze_mode={freeze_mode or "custom"}')
+        print(f'Frozen parameter tensors: {len(frozen_names)}')
+        print(f'Frozen parameters: {frozen_params} / {total_params}')
+        print(f'Trainable parameters remaining: {trainable_params}')
+        for pattern, hits in pattern_hits.items():
+            print(f'  pattern {pattern!r}: matched {hits} tensors')
 
     def cleanup(self, ):
         if self.writer:

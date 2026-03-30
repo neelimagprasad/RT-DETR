@@ -63,6 +63,8 @@ class BaseConfig(object):
         self.sync_bn :bool = False 
         self.clip_max_norm : float = 0.
         self.find_unused_parameters :bool = None
+        self.freeze_mode: str = ''
+        self.freeze_modules: List[str] = None
 
         self.seed :int = None
         self.print_freq :int = None 

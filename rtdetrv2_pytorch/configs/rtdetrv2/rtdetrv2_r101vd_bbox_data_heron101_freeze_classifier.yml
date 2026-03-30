@@ -1,0 +1,10 @@
+__include__: [
+  './rtdetrv2_r101vd_bbox_data_heron101.yml',
+]
+
+# Head-scope experiment: freeze classification heads while keeping bbox heads
+# and the shared body trainable.
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_freeze_classifier
+find_unused_parameters: True
+freeze_mode: freeze_classifier

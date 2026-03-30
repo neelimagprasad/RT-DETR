@@ -1,0 +1,42 @@
+__include__: [
+  './rtdetrv2_r101vd_6x_coco.yml',
+]
+
+# Full fine-tune baseline on the bbox_data train/test split using the original
+# lower LR magnitudes from the R101 COCO recipe.
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_low_lr
+
+num_classes: 17
+remap_mscoco_category: False
+
+train_dataloader:
+  total_batch_size: 1
+  dataset:
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images_train/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+
+val_dataloader:
+  total_batch_size: 1
+  dataset:
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images_test/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_test.json
+
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*backbone)(?!.*norm|bn).*$'
+      lr: 0.000001
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
+      weight_decay: 0.
+  lr: 0.0001
+
+lr_scheduler:
+  type: MultiStepLR
+  milestones: [20, 40]
+  gamma: 0.2
+
+lr_warmup_scheduler:
+  warmup_duration: 20
