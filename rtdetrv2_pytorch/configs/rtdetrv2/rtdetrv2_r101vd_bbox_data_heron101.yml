@@ -13,14 +13,14 @@ remap_mscoco_category: False
 train_dataloader:
   total_batch_size: 1
   dataset:
-    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images_train/
     ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
 
 val_dataloader:
   total_batch_size: 1
   dataset:
-    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images/
-    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+    img_folder: rtdetrv2_pytorch/dataset/bbox_data/images_test/
+    ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_test.json
 
 # Use a stronger fine-tuning LR on the task-specific layers while keeping the
 # pretrained backbone more conservative.

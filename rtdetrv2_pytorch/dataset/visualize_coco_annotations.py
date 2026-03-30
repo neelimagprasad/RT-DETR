@@ -3,15 +3,24 @@
 COCO annotation visualizer + lightweight editor (keyboard-driven).
 
 Features:
-- Draw bbox overlays with: annotation_id + category_name (category_id)
-- Arrow keys cycle images/boxes
-- Backspace/Delete deletes the currently selected box
-- s saves JSON
-- q/Esc quits (auto-saves if modified)
+  - Draw bbox overlays with `annotation_id + category_name (category_id)`
+  - Arrow keys cycle images and boxes
+  - `c` edits the selected box's `category_id`
+  - Backspace/Delete deletes the currently selected box
+  - s saves JSON
+  - q/Esc quits (auto-saves if modified)
 
 Default paths are relative to this script:
   images:      rtdetrv2_pytorch/dataset/bbox_data/images/
   annotations: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+
+Run from the repo root with:
+  python3 rtdetrv2_pytorch/dataset/visualize_coco_annotations.py
+
+Or specify paths explicitly:
+  python3 rtdetrv2_pytorch/dataset/visualize_coco_annotations.py \
+    --images-dir rtdetrv2_pytorch/dataset/bbox_data/images \
+    --coco-json rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ except Exception:  # pragma: no cover
 
 
 DATASET_DIR = Path(__file__).resolve().parent
+DEFAULT_DATA_DIR = DATASET_DIR / "bbox_data"
 
 WINDOW_NAME = "COCO Annotation Visualizer"
 DISPLAY_MAX_DIM = 1600
@@ -62,6 +72,17 @@ RELOAD_POLL_MS = 120
 class Hit:
     ann_id: int
     image_id: int
+
+
+def _set_category_id(*, anns: list[dict[str, Any]], ann_id: int, category_id: int) -> bool:
+    for ann in anns:
+        if not isinstance(ann, dict):
+            continue
+        if int(ann.get("id", -1)) != ann_id:
+            continue
+        ann["category_id"] = int(category_id)
+        return True
+    return False
 
 
 def _resize_for_display(img: np.ndarray) -> tuple[np.ndarray, float]:
@@ -307,13 +328,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--images-dir",
         type=str,
-        default=str(DATASET_DIR / "bbox_data" / "images"),
+        default=str(DEFAULT_DATA_DIR / "images"),
         help="Directory that `images[*].file_name` is relative to.",
     )
     p.add_argument(
         "--coco-json",
         type=str,
-        default=str(DATASET_DIR / "bbox_data" / "annotations" / "instances_train.json"),
+        default=str(DEFAULT_DATA_DIR / "annotations" / "instances_train.json"),
         help="COCO instances JSON to visualize/edit.",
     )
     p.add_argument(
@@ -339,6 +360,8 @@ def main() -> None:
     modified = False
     selected: Hit | None = None
     last_mtime_ns = _safe_mtime_ns(coco_json)
+    category_edit_active = False
+    category_edit_buffer = ""
 
     idx = 0
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -347,6 +370,8 @@ def main() -> None:
 
     def try_reload(*, keep_rel: str | None) -> None:
         nonlocal payload, images, anns_by_image, cat_name_by_id, category_palette, idx, last_mtime_ns, selected
+        nonlocal category_edit_active
+        nonlocal category_edit_buffer
         # Avoid clobbering unsaved edits made via this tool.
         if modified:
             return
@@ -372,6 +397,8 @@ def main() -> None:
                     break
             idx = max(0, min(idx, len(images) - 1))
         selected = None
+        category_edit_active = False
+        category_edit_buffer = ""
 
     while 0 <= idx < len(images):
         im = images[idx]
@@ -447,11 +474,24 @@ def main() -> None:
             disp, _scale = _resize_for_display(overlay)
             hud_lines: list[str] = [
                 f"{idx+1}/{len(images)}  {rel}",
-                "Box: ←/→ (or a/d) | Page: ↑/↓ (or w/s) | Backspace=delete | s save | q/Esc quit",
+                "Box: ←/→ (or a/d) | Page: ↑/↓ (or p/n or w) | c edit category_id | Backspace=delete | s save | q/Esc quit",
             ]
             if selected is not None and selected.image_id == image_id:
                 sel_i = sel_idx_by_image.get(image_id, 0)
                 hud_lines.append(f"Selected box {sel_i+1}/{len(anns)}  ann_id={selected.ann_id}")
+            if category_edit_active:
+                hud_lines.append(
+                    f"Edit category_id: {category_edit_buffer or '_'}  | Enter=apply | Backspace=erase | Esc=cancel"
+                )
+            elif selected is not None and selected.image_id == image_id:
+                sel_ann = next(
+                    (a for a in anns if isinstance(a, dict) and int(a.get("id", -1)) == selected.ann_id),
+                    None,
+                )
+                if isinstance(sel_ann, dict):
+                    hud_lines.append(
+                        f"Press c to enter a new category_id (current: {int(sel_ann.get('category_id', -1))})"
+                    )
             if modified:
                 hud_lines.append("MODIFIED (press 's' to save)")
             disp_hud = _with_bottom_hud(disp, hud_lines)
@@ -477,6 +517,10 @@ def main() -> None:
             break
 
         if key in (27, ord("q")):
+            if category_edit_active:
+                category_edit_active = False
+                category_edit_buffer = ""
+                continue
             break
 
         # Arrow key codes vary by platform / backend.
@@ -485,11 +529,37 @@ def main() -> None:
         UP_KEYS = {82, 2490368, 63232}
         DOWN_KEYS = {84, 2621440, 63233}
 
+        if category_edit_active:
+            if key in (10, 13):  # Enter
+                if category_edit_buffer and selected is not None and selected.image_id == image_id:
+                    if _set_category_id(
+                        anns=anns,
+                        ann_id=selected.ann_id,
+                        category_id=int(category_edit_buffer),
+                    ):
+                        modified = True
+                category_edit_active = False
+                category_edit_buffer = ""
+                continue
+            if key in (8, 127):
+                category_edit_buffer = category_edit_buffer[:-1]
+                continue
+            if key == 255:
+                continue
+            if key == 27:
+                category_edit_active = False
+                category_edit_buffer = ""
+                continue
+            if ord("0") <= key <= ord("9"):
+                category_edit_buffer += chr(key)
+                continue
+            continue
+
         # Page nav: Up/Down arrows + fallbacks.
         if key in UP_KEYS or key in (ord("p"), ord("w")):  # prev page
             idx = max(0, idx - 1)
             continue
-        if key in DOWN_KEYS or key in (ord("n"), ord("s")):  # next page
+        if key in DOWN_KEYS or key == ord("n"):  # next page
             idx = min(len(images) - 1, idx + 1)
             continue
 
@@ -507,6 +577,13 @@ def main() -> None:
                 sel_i = (sel_i + 1) % len(anns)
                 sel_idx_by_image[image_id] = sel_i
                 selected = Hit(ann_id=int(anns[sel_i].get("id", -1)), image_id=image_id)
+            continue
+
+        if key == ord("c"):
+            if selected is None or selected.image_id != image_id:
+                continue
+            category_edit_active = True
+            category_edit_buffer = ""
             continue
 
         # Delete selected box.

@@ -11,17 +11,37 @@ Workflow:
        python3 rtdetrv2_pytorch/dataset/render_pdf_pages.py --dpi 300
   3) Label boxes on the PNGs and save COCO JSON:
        python3 rtdetrv2_pytorch/dataset/ground_truth_bbox_labeler_copy.py \
-         --images-dir bbox_data/images \
-         --coco-json bbox_data/annotations/instances_train.json
+         --images-dir rtdetrv2_pytorch/dataset/bbox_data/images \
+         --coco-json rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+
+Run from the repo root with:
+  python3 rtdetrv2_pytorch/dataset/ground_truth_bbox_labeler_copy.py
+
+Or specify paths explicitly:
+  python3 rtdetrv2_pytorch/dataset/ground_truth_bbox_labeler_copy.py \
+    --images-dir rtdetrv2_pytorch/dataset/bbox_data/images \
+    --coco-json rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_train.json
+
+Jump to a specific page by zero-based index:
+  python3 rtdetrv2_pytorch/dataset/ground_truth_bbox_labeler_copy.py \
+    --start-index 120
 
 Controls:
   - n / right arrow: next image
   - p / left arrow : previous image
-  - a             : add a new bbox (draw with mouse, Enter=accept, Esc=cancel)
-  - Backspace     : delete last bbox on current image
+  - a             : edit boxes on current image (draw new, select, resize, delete)
+  - Backspace     : delete last bbox on current image (main view)
   - x             : clear ALL bboxes on current image
   - s             : save COCO JSON
   - q / Esc       : quit (auto-saves if modified)
+
+Edit mode controls (after pressing `a`):
+  - click box     : select box
+  - drag corner   : resize selected box
+  - click-drag    : draw a new box in empty space
+  - Enter         : commit new box
+  - Backspace     : delete selected box
+  - Esc / q       : exit edit mode
 
 Classes:
   This script does NOT try to classify boxes yet. New annotations are created with
@@ -49,7 +69,9 @@ DISPLAY_MAX_DIM = 1600  # downscale for display if larger
 COLOR_BOX = (0, 0, 255)  # BGR: red
 COLOR_EDIT = (0, 0, 255)  # BGR: red while dragging
 COLOR_NEW = (255, 0, 0)  # BGR: blue for newly committed boxes this session
+COLOR_SELECTED = (30, 136, 229)  # BGR: orange/blue highlight for selected box
 COLOR_TEXT = (10, 10, 10)  # BGR
+HANDLE_RADIUS = 8
 
 HUD_BG = (245, 245, 245)  # BGR
 HUD_BORDER = (60, 60, 60)  # BGR
@@ -144,6 +166,75 @@ def _with_bottom_hud(img: np.ndarray, lines: list[str]) -> np.ndarray:
 def _draw_bbox(img: np.ndarray, b: BBox, *, color: tuple[int, int, int], thickness: int = 3) -> None:
     b = _normalize(b)
     cv2.rectangle(img, (b.x0, b.y0), (b.x1, b.y1), color, thickness)
+
+
+def _bbox_from_ann(ann: dict[str, Any]) -> BBox | None:
+    bbox = ann.get("bbox")
+    if not (isinstance(bbox, list) and len(bbox) == 4):
+        return None
+    x, y, bw, bh = [int(round(float(v))) for v in bbox]
+    return BBox(x0=x, y0=y, x1=x + bw, y1=y + bh)
+
+
+def _update_ann_bbox(ann: dict[str, Any], b: BBox) -> None:
+    b = _normalize(b)
+    ann["bbox"] = [int(b.x0), int(b.y0), int(b.x1 - b.x0), int(b.y1 - b.y0)]
+    ann["area"] = int((b.x1 - b.x0) * (b.y1 - b.y0))
+
+
+def _copy_anns(anns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    copied: list[dict[str, Any]] = []
+    for ann in anns:
+        cloned = dict(ann)
+        if isinstance(cloned.get("bbox"), list):
+            cloned["bbox"] = list(cloned["bbox"])
+        copied.append(cloned)
+    return copied
+
+
+def _hit_test_ann(anns: list[dict[str, Any]], x: int, y: int) -> int | None:
+    for idx in range(len(anns) - 1, -1, -1):
+        bbox = _bbox_from_ann(anns[idx])
+        if bbox is None:
+            continue
+        bbox = _normalize(bbox)
+        if bbox.x0 <= x <= bbox.x1 and bbox.y0 <= y <= bbox.y1:
+            return idx
+    return None
+
+
+def _corner_points(b: BBox) -> dict[str, tuple[int, int]]:
+    b = _normalize(b)
+    return {
+        "tl": (b.x0, b.y0),
+        "tr": (b.x1, b.y0),
+        "bl": (b.x0, b.y1),
+        "br": (b.x1, b.y1),
+    }
+
+
+def _hit_test_handle(b: BBox, x: int, y: int, tol: int) -> str | None:
+    for name, (cx, cy) in _corner_points(b).items():
+        if abs(cx - x) <= tol and abs(cy - y) <= tol:
+            return name
+    return None
+
+
+def _resize_from_handle(b: BBox, handle: str, x: int, y: int) -> BBox:
+    b = _normalize(b)
+    if handle == "tl":
+        return BBox(x0=x, y0=y, x1=b.x1, y1=b.y1)
+    if handle == "tr":
+        return BBox(x0=b.x0, y0=y, x1=x, y1=b.y1)
+    if handle == "bl":
+        return BBox(x0=x, y0=b.y0, x1=b.x1, y1=y)
+    return BBox(x0=b.x0, y0=b.y0, x1=x, y1=y)
+
+
+def _draw_handles(img: np.ndarray, b: BBox) -> None:
+    for cx, cy in _corner_points(b).values():
+        cv2.circle(img, (cx, cy), HANDLE_RADIUS, COLOR_SELECTED, thickness=-1)
+        cv2.circle(img, (cx, cy), HANDLE_RADIUS, (255, 255, 255), thickness=2)
 
 
 def _load_images(images_dir: Path, image_glob: str) -> list[Path]:
@@ -245,12 +336,27 @@ def _ensure_image_record(
     return image_id
 
 
-def _add_boxes_in_window(
-    window_name: str, img_full: np.ndarray, *, existing_boxes: list[BBox]
-) -> tuple[list[BBox], int]:
+def _edit_boxes_in_window(
+    window_name: str,
+    img_full: np.ndarray,
+    *,
+    anns: list[dict[str, Any]],
+    image_id: int,
+    default_category_id: int,
+    next_ann_id: int,
+) -> tuple[list[dict[str, Any]], int, int]:
     h, w = img_full.shape[:2]
-    committed: list[BBox] = []
-    state: dict[str, Any] = {"drag": False, "start": (0, 0), "bbox": None, "scale": 1.0}
+    working = _copy_anns(anns)
+    selected_idx: int | None = 0 if working else None
+    state: dict[str, Any] = {
+        "drag": False,
+        "mode": None,
+        "start": (0, 0),
+        "bbox": None,
+        "scale": 1.0,
+        "resize_idx": None,
+        "resize_handle": None,
+    }
 
     def to_full(x_disp: int, y_disp: int) -> tuple[int, int]:
         scale = float(state["scale"]) if float(state["scale"]) > 0 else 1.0
@@ -258,51 +364,96 @@ def _add_boxes_in_window(
         return int(round(x_disp * inv)), int(round(y_disp * inv))
 
     def on_mouse(event: int, x: int, y: int, _flags: int, _param: object) -> None:
+        nonlocal selected_idx
+        fx, fy = to_full(x, y)
+        tol = max(8, int(round(12 / max(float(state["scale"]), 1e-6))))
         if event == cv2.EVENT_LBUTTONDOWN:
-            state["drag"] = True
-            sx, sy = to_full(x, y)
-            state["start"] = (sx, sy)
-            state["bbox"] = BBox(x0=sx, y0=sy, x1=sx, y1=sy)
-        elif event == cv2.EVENT_MOUSEMOVE and state["drag"]:
-            if state["bbox"] is None:
+            if selected_idx is not None and 0 <= selected_idx < len(working):
+                selected_bbox = _bbox_from_ann(working[selected_idx])
+                if selected_bbox is not None:
+                    handle = _hit_test_handle(selected_bbox, fx, fy, tol)
+                    if handle is not None:
+                        state["drag"] = True
+                        state["mode"] = "resize"
+                        state["resize_idx"] = selected_idx
+                        state["resize_handle"] = handle
+                        return
+
+            hit_idx = _hit_test_ann(working, fx, fy)
+            if hit_idx is not None:
+                selected_idx = hit_idx
+                state["bbox"] = None
+                state["drag"] = False
+                state["mode"] = None
                 return
-            fx, fy = to_full(x, y)
-            sx, sy = state["start"]
-            state["bbox"] = BBox(x0=sx, y0=sy, x1=fx, y1=fy)
+
+            state["drag"] = True
+            state["mode"] = "draw"
+            state["start"] = (fx, fy)
+            state["bbox"] = BBox(x0=fx, y0=fy, x1=fx, y1=fy)
+        elif event == cv2.EVENT_MOUSEMOVE and state["drag"]:
+            if state["mode"] == "draw":
+                if state["bbox"] is None:
+                    return
+                sx, sy = state["start"]
+                state["bbox"] = BBox(x0=sx, y0=sy, x1=fx, y1=fy)
+            elif state["mode"] == "resize":
+                resize_idx = state.get("resize_idx")
+                resize_handle = state.get("resize_handle")
+                if resize_idx is None or resize_handle is None or not (0 <= resize_idx < len(working)):
+                    return
+                bbox = _bbox_from_ann(working[resize_idx])
+                if bbox is None:
+                    return
+                resized = _clip(_resize_from_handle(bbox, str(resize_handle), fx, fy), w=w, h=h)
+                if _valid(resized):
+                    _update_ann_bbox(working[resize_idx], resized)
         elif event == cv2.EVENT_LBUTTONUP:
             state["drag"] = False
-            if state["bbox"] is not None:
+            if state["mode"] == "draw" and state["bbox"] is not None:
                 state["bbox"] = _clip(state["bbox"], w=w, h=h)
+            state["mode"] = None
+            state["resize_idx"] = None
+            state["resize_handle"] = None
 
     cv2.setMouseCallback(window_name, on_mouse)
 
     while True:
         overlay = img_full.copy()
-        # Always show any already-saved boxes on this page.
-        for b0 in existing_boxes:
-            _draw_bbox(overlay, b0, color=COLOR_BOX, thickness=3)
-        # Show newly committed boxes in a distinct color.
-        for b0 in committed:
-            _draw_bbox(overlay, b0, color=COLOR_NEW, thickness=3)
+        for idx, ann in enumerate(working):
+            b0 = _bbox_from_ann(ann)
+            if b0 is None:
+                continue
+            is_selected = selected_idx is not None and idx == selected_idx
+            _draw_bbox(overlay, b0, color=COLOR_SELECTED if is_selected else COLOR_BOX, thickness=5 if is_selected else 3)
+            if is_selected:
+                _draw_handles(overlay, b0)
         b = state.get("bbox")
         if isinstance(b, BBox):
             _draw_bbox(overlay, b, color=COLOR_EDIT, thickness=4)
         disp, scale = _resize_for_display(overlay)
         state["scale"] = scale
         hud_lines = [
-            "ADD MODE: click-drag to draw | Enter=commit | Esc=done | n/→ next | p/← prev | Backspace=undo | x=clear",
-            f"Existing: {len(existing_boxes)}  New (this add): {len(committed)}",
+            "EDIT MODE: click empty area to draw | click box to select | drag selected corner to resize",
+            "Enter=commit new box | Backspace/Delete=delete selected | n/→ next | p/← prev | x=clear | Esc=done",
+            f"Boxes on page: {len(working)}",
         ]
+        if selected_idx is not None and 0 <= selected_idx < len(working):
+            selected_ann = working[selected_idx]
+            hud_lines.append(
+                f"Selected ann_id={selected_ann.get('id', 'new')} category_id={selected_ann.get('category_id', default_category_id)}"
+            )
         cv2.imshow(window_name, _with_bottom_hud(disp, hud_lines))
         key = cv2.waitKey(20) & 0xFF
         if key in (27, ord("q")):  # Esc / q
-            return committed, 0
+            return working, next_ann_id, 0
         if key in (ord("n"), 83):  # 'n' or right arrow
-            return committed, +1
+            return working, next_ann_id, +1
         if key in (ord("p"), 81):  # 'p' or left arrow
-            return committed, -1
+            return working, next_ann_id, -1
         if key == ord("x"):
-            committed.clear()
+            working.clear()
+            selected_idx = None
             state["bbox"] = None
             state["drag"] = False
             continue
@@ -310,8 +461,12 @@ def _add_boxes_in_window(
             if isinstance(state.get("bbox"), BBox):
                 state["bbox"] = None
                 state["drag"] = False
-            elif committed:
-                committed.pop()
+            elif selected_idx is not None and 0 <= selected_idx < len(working):
+                working.pop(selected_idx)
+                if working:
+                    selected_idx = min(selected_idx, len(working) - 1)
+                else:
+                    selected_idx = None
             continue
         if key in (10, 13):  # Enter
             if not isinstance(b, BBox):
@@ -319,7 +474,18 @@ def _add_boxes_in_window(
             b = _clip(_normalize(b), w=w, h=h)
             if not _valid(b):
                 continue
-            committed.append(b)
+            next_ann_id += 1
+            working.append(
+                {
+                    "id": int(next_ann_id),
+                    "image_id": int(image_id),
+                    "category_id": int(default_category_id),
+                    "bbox": [int(b.x0), int(b.y0), int(b.x1 - b.x0), int(b.y1 - b.y0)],
+                    "area": int((b.x1 - b.x0) * (b.y1 - b.y0)),
+                    "iscrowd": 0,
+                }
+            )
+            selected_idx = len(working) - 1
             state["bbox"] = None
             state["drag"] = False
 
@@ -339,6 +505,7 @@ def parse_args() -> argparse.Namespace:
         default=str(DATASET_DIR / "bbox_data" / "annotations" / "instances_train.json"),
     )
     p.add_argument("--default-category-id", type=int, default=0, help="Used for new boxes (placeholder).")
+    p.add_argument("--start-index", type=int, default=0, help="Zero-based starting image index.")
     return p.parse_args()
 
 
@@ -353,7 +520,7 @@ def main() -> None:
     images_by_id, anns_by_image, next_ann_id = _index_existing(payload)
     modified = False
 
-    idx = 0
+    idx = max(0, min(len(paths) - 1, int(args.start_index)))
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
 
     while 0 <= idx < len(paths):
@@ -383,7 +550,7 @@ def main() -> None:
         disp, _scale = _resize_for_display(overlay)
         hud_lines = [
             f"{idx+1}/{len(paths)}  {img_path.name}",
-            "n/→ next | p/← prev | a add mode | Backspace del last | x clear | s save | q/Esc quit",
+            "n/→ next | p/← prev | a edit boxes | Backspace del last | x clear | s save | q/Esc quit",
         ]
         cv2.imshow(WINDOW_NAME, _with_bottom_hud(disp, hud_lines))
         key = cv2.waitKey(0) & 0xFF
@@ -414,34 +581,22 @@ def main() -> None:
                 _sync_annotations(payload, anns_by_image)
             continue
         if key == ord("a"):
-            existing_boxes: list[BBox] = []
-            for ann in anns:
-                bbox = ann.get("bbox")
-                if isinstance(bbox, list) and len(bbox) == 4:
-                    x, y, bw, bh = [int(round(float(v))) for v in bbox]
-                    existing_boxes.append(BBox(x0=x, y0=y, x1=x + bw, y1=y + bh))
-
-            new_boxes, nav = _add_boxes_in_window(WINDOW_NAME, img, existing_boxes=existing_boxes)
-            if not new_boxes and nav == 0:
+            edited_anns, next_ann_id, nav = _edit_boxes_in_window(
+                WINDOW_NAME,
+                img,
+                anns=anns,
+                image_id=image_id,
+                default_category_id=int(args.default_category_id),
+                next_ann_id=next_ann_id,
+            )
+            changed = edited_anns != anns
+            if not changed and nav == 0:
                 continue
 
-            for b in new_boxes:
-                b = _clip(_normalize(b), w=w, h=h)
-                if not _valid(b):
-                    continue
-                next_ann_id += 1
-                anns.append(
-                    {
-                        "id": int(next_ann_id),
-                        "image_id": int(image_id),
-                        "category_id": int(args.default_category_id),
-                        "bbox": [int(b.x0), int(b.y0), int(b.x1 - b.x0), int(b.y1 - b.y0)],
-                        "area": int((b.x1 - b.x0) * (b.y1 - b.y0)),
-                        "iscrowd": 0,
-                    }
-                )
+            anns_by_image[image_id] = edited_anns
+            anns = anns_by_image[image_id]
             _sync_annotations(payload, anns_by_image)
-            if new_boxes:
+            if changed:
                 modified = True
             if nav != 0:
                 if nav > 0:
