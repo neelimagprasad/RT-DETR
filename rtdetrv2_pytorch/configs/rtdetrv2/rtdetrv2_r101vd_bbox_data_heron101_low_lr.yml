@@ -10,6 +10,14 @@ output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_low_lr
 num_classes: 17
 remap_mscoco_category: False
 
+evaluator:
+  type: CocoEvaluator
+  iou_types: ['bbox', ]
+  class_agnostic: True
+
+PResNet:
+  pretrained: False
+
 train_dataloader:
   total_batch_size: 1
   dataset:

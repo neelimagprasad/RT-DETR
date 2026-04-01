@@ -6,5 +6,7 @@ __include__: [
 # and the shared body trainable.
 
 output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_freeze_classifier
+PResNet:
+  pretrained: False
 find_unused_parameters: True
 freeze_mode: freeze_classifier

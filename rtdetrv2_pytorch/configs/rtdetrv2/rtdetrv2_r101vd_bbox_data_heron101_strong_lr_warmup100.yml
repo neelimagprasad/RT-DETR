@@ -7,5 +7,8 @@ __include__: [
 
 output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_strong_lr_warmup100
 
+PResNet:
+  pretrained: False
+
 lr_warmup_scheduler:
   warmup_duration: 100

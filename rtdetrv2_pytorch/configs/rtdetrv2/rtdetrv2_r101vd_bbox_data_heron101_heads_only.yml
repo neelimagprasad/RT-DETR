@@ -6,5 +6,7 @@ __include__: [
 # shared trunk.
 
 output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_heads_only
+PResNet:
+  pretrained: False
 find_unused_parameters: True
 freeze_mode: heads_only

@@ -10,3 +10,4 @@ output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_backbone_frozen
 PResNet:
   freeze_at: 4
   freeze_norm: True
+  pretrained: False

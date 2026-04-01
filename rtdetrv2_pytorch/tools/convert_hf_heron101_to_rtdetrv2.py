@@ -6,13 +6,12 @@ HF repo: docling-project/docling-layout-heron-101
 Files: model.safetensors + config.json (Transformers RTDetrV2ForObjectDetection)
 
 This script builds this repo's RT-DETRv2-R101 (hidden_dim=384) model and maps as many weights as possible:
+  - backbone stem + ResNet stages
   - decoder_input_proj -> decoder.input_proj
   - enc_output / enc_score_head / enc_bbox_head
   - decoder class/bbox heads
   - decoder layers (including packing q/k/v projections into MultiheadAttention in_proj_*)
   - denoising_class_embed
-
-Backbone weights are NOT mapped (different ResNet implementations); they will remain whatever your config initializes.
 
 Output is a .pth that you can pass to tools/train.py using -t.
 """
@@ -22,6 +21,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Dict, Tuple
+import re
 
 import torch
 from safetensors import safe_open
@@ -60,6 +60,49 @@ def _maybe_pad_embedding(dst: torch.Tensor, src: torch.Tensor) -> torch.Tensor:
     return src
 
 
+def _map_backbone_key(hf_key: str) -> str:
+    """Map HF RT-DETR ResNet backbone keys to this repo's PResNet keys."""
+    if not hf_key.startswith("model.backbone.model."):
+        return ""
+
+    mapped = hf_key
+    mapped = mapped.replace("model.backbone.model.embedder.embedder.0.", "backbone.conv1.conv1_1.")
+    mapped = mapped.replace("model.backbone.model.embedder.embedder.1.", "backbone.conv1.conv1_2.")
+    mapped = mapped.replace("model.backbone.model.embedder.embedder.2.", "backbone.conv1.conv1_3.")
+    mapped = mapped.replace(".convolution.", ".conv.")
+    mapped = mapped.replace(".normalization.", ".norm.")
+    mapped = mapped.replace("model.backbone.model.encoder.stages.", "backbone.res_layers.")
+    mapped = re.sub(r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.layer\.0\.", r"backbone.res_layers.\1.blocks.\2.branch2a.", mapped)
+    mapped = re.sub(r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.layer\.1\.", r"backbone.res_layers.\1.blocks.\2.branch2b.", mapped)
+    mapped = re.sub(r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.layer\.2\.", r"backbone.res_layers.\1.blocks.\2.branch2c.", mapped)
+
+    # Stage 2/3/4 stride-2 shortcuts are avgpool + ConvNormLayer in a Sequential.
+    mapped = re.sub(
+        r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.shortcut\.1\.conv\.",
+        r"backbone.res_layers.\1.blocks.\2.short.conv.conv.",
+        mapped,
+    )
+    mapped = re.sub(
+        r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.shortcut\.1\.norm\.",
+        r"backbone.res_layers.\1.blocks.\2.short.conv.norm.",
+        mapped,
+    )
+
+    # Stage 1 shortcut is a direct ConvNormLayer.
+    mapped = re.sub(
+        r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.shortcut\.conv\.",
+        r"backbone.res_layers.\1.blocks.\2.short.conv.",
+        mapped,
+    )
+    mapped = re.sub(
+        r"backbone\.res_layers\.(\d+)\.layers\.(\d+)\.shortcut\.norm\.",
+        r"backbone.res_layers.\1.blocks.\2.short.norm.",
+        mapped,
+    )
+
+    return mapped
+
+
 def convert(*, cfg_path: str, hf_safetensors: Path, output_pth: Path) -> None:
     # Build this repo model (RT-DETRv2-R101/384) using YAMLConfig.
     import sys
@@ -77,6 +120,12 @@ def convert(*, cfg_path: str, hf_safetensors: Path, output_pth: Path) -> None:
     hf = _load_hf_safetensors(hf_safetensors)
 
     mapped: Dict[str, torch.Tensor] = {}
+
+    # --- backbone ---
+    for hf_key, tensor in hf.items():
+        dst_key = _map_backbone_key(hf_key)
+        if dst_key:
+            mapped[dst_key] = tensor
 
     # --- input proj (3 levels) ---
     for i in range(3):
