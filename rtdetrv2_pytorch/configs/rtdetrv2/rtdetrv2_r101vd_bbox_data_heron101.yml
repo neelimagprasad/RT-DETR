@@ -30,17 +30,17 @@ val_dataloader:
     img_folder: rtdetrv2_pytorch/dataset/bbox_data/images_test/
     ann_file: rtdetrv2_pytorch/dataset/bbox_data/annotations/instances_test.json
 
-# Use a conservative fine-tuning LR for the current bbox_data split while
-# keeping the pretrained backbone more conservative than the detector stack.
+# Use a slightly hotter fine-tuning LR for the current bbox_data split while
+# still keeping the pretrained backbone more conservative than the detector stack.
 optimizer:
   params:
     -
       params: '^(?=.*backbone)(?!.*norm|bn).*$'
-      lr: 0.00001
+      lr: 0.000015
     -
       params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
       weight_decay: 0.
-  lr: 0.0001
+  lr: 0.00015
 
 lr_scheduler:
   type: MultiStepLR

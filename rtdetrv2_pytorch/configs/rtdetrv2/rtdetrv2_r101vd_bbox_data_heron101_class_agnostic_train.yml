@@ -1,0 +1,9 @@
+__include__: [
+  './rtdetrv2_r101vd_bbox_data_heron101.yml',
+]
+
+# Training ablation: collapse all GT labels to a single class during
+# matching/loss, while keeping bbox regression and class-agnostic eval the same.
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_class_agnostic_train
+class_agnostic_train: True

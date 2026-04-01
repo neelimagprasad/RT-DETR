@@ -26,9 +26,9 @@ class HungarianMatcher(nn.Module):
     while the others are un-matched (and thus treated as non-objects).
     """
 
-    __share__ = ['use_focal_loss', ]
+    __share__ = ['use_focal_loss', 'class_agnostic_train']
 
-    def __init__(self, weight_dict, use_focal_loss=False, alpha=0.25, gamma=2.0):
+    def __init__(self, weight_dict, use_focal_loss=False, alpha=0.25, gamma=2.0, class_agnostic_train=False):
         """Creates the matcher
 
         Params:
@@ -44,6 +44,7 @@ class HungarianMatcher(nn.Module):
         self.use_focal_loss = use_focal_loss
         self.alpha = alpha
         self.gamma = gamma
+        self.class_agnostic_train = class_agnostic_train
 
         assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0, "all costs cant be 0"
 
@@ -79,7 +80,10 @@ class HungarianMatcher(nn.Module):
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
 
         # Also concat the target labels and boxes
-        tgt_ids = torch.cat([v["labels"] for v in targets])
+        if self.class_agnostic_train:
+            tgt_ids = torch.zeros_like(torch.cat([v["labels"] for v in targets]))
+        else:
+            tgt_ids = torch.cat([v["labels"] for v in targets])
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
         # Compute the classification cost. Contrary to the loss, we don't use the NLL,

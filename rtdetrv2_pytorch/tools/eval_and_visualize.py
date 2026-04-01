@@ -77,6 +77,34 @@ def _xyxy_to_xywh(box: list[float]) -> list[float]:
     return [float(x0), float(y0), float(x1 - x0), float(y1 - y0)]
 
 
+def _make_class_agnostic_coco_gt(coco_gt):
+    coco_gt = copy.deepcopy(coco_gt)
+    coco_gt.dataset = copy.deepcopy(coco_gt.dataset)
+    coco_gt.dataset["categories"] = [{"id": 1, "name": "object", "supercategory": "object"}]
+    for ann in coco_gt.dataset.get("annotations", []):
+        ann["category_id"] = 1
+    coco_gt.createIndex()
+    return coco_gt
+
+
+def _apply_nms(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    labels: torch.Tensor,
+    iou_threshold: float | None,
+    class_agnostic: bool,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if iou_threshold is None or iou_threshold <= 0:
+        return boxes, scores, labels
+
+    if class_agnostic:
+        keep = torchvision.ops.nms(boxes, scores, iou_threshold)
+    else:
+        keep = torchvision.ops.batched_nms(boxes, scores, labels, iou_threshold)
+
+    return boxes[keep], scores[keep], labels[keep]
+
+
 def _draw_boxes(
     image: Image.Image,
     *,
@@ -132,8 +160,12 @@ def main(args: argparse.Namespace) -> None:
 
     # COCO GT API from the dataset itself.
     coco_gt = dataset.coco
-    categories = coco_gt.dataset.get("categories", [])
-    id_to_name = {int(cat["id"]): str(cat.get("name", cat["id"])) for cat in categories}
+    if args.class_agnostic_eval:
+        coco_gt = _make_class_agnostic_coco_gt(coco_gt)
+        id_to_name = {1: "object"}
+    else:
+        categories = coco_gt.dataset.get("categories", [])
+        id_to_name = {int(cat["id"]): str(cat.get("name", cat["id"])) for cat in categories}
 
     detections: list[dict[str, Any]] = []
     vis_dir = Path(args.save_vis_dir).expanduser().resolve() if args.save_vis_dir else None
@@ -152,12 +184,23 @@ def main(args: argparse.Namespace) -> None:
 
         for target, result in zip(targets, results):
             image_id = int(target["image_id"].item())
-            labels = result["labels"].detach().cpu().tolist()
-            boxes = result["boxes"].detach().cpu().tolist()
-            scores = result["scores"].detach().cpu().tolist()
+            labels = result["labels"].detach().cpu()
+            boxes = result["boxes"].detach().cpu()
+            scores = result["scores"].detach().cpu()
+
+            if args.class_agnostic_eval:
+                labels = torch.ones_like(labels)
+
+            boxes, scores, labels = _apply_nms(
+                boxes,
+                scores,
+                labels,
+                args.nms_iou_threshold,
+                args.class_agnostic_eval,
+            )
 
             image_dets: list[dict[str, Any]] = []
-            for cid, box, score in zip(labels, boxes, scores):
+            for cid, box, score in zip(labels.tolist(), boxes.tolist(), scores.tolist()):
                 if float(score) < float(args.eval_score_threshold):
                     continue
                 det = {
@@ -221,6 +264,9 @@ def main(args: argparse.Namespace) -> None:
         "AR_large": float(evaluator.stats[11]),
         "num_images": int(len(dataset)),
         "num_detections": int(len(detections)),
+        "class_agnostic_eval": bool(args.class_agnostic_eval),
+        "nms_iou_threshold": None if args.nms_iou_threshold is None else float(args.nms_iou_threshold),
+        "eval_score_threshold": float(args.eval_score_threshold),
     }
 
     if args.metrics_json:
@@ -242,6 +288,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="cuda", help="cuda / cpu")
     parser.add_argument("--num-workers", type=int, default=0, help="Evaluation dataloader workers.")
     parser.add_argument("--eval-score-threshold", type=float, default=0.0, help="Threshold for COCO eval detections.")
+    parser.add_argument("--class-agnostic-eval", action="store_true", help="Collapse all GT/pred labels to one object class for COCO eval.")
+    parser.add_argument("--nms-iou-threshold", type=float, default=None, help="Optional IoU threshold for NMS before evaluation/visualization.")
     parser.add_argument("--save-vis-dir", type=str, default=None, help="Directory to save prediction visualizations.")
     parser.add_argument("--vis-score-threshold", type=float, default=0.4, help="Threshold for drawn predictions.")
     parser.add_argument("--pred-box-width", type=int, default=5, help="Line width for predicted boxes.")

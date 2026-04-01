@@ -21,7 +21,7 @@ class RTDETRCriterionv2(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    __share__ = ['num_classes', ]
+    __share__ = ['num_classes', 'class_agnostic_train']
     __inject__ = ['matcher', ]
 
     def __init__(self, \
@@ -31,6 +31,7 @@ class RTDETRCriterionv2(nn.Module):
         alpha=0.2, 
         gamma=2.0, 
         num_classes=80, 
+        class_agnostic_train=False,
         boxes_weight_format=None,
         share_matched_indices=False):
         """Create the criterion.
@@ -44,6 +45,7 @@ class RTDETRCriterionv2(nn.Module):
         """
         super().__init__()
         self.num_classes = num_classes
+        self.class_agnostic_train = class_agnostic_train
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses 
@@ -51,6 +53,15 @@ class RTDETRCriterionv2(nn.Module):
         self.share_matched_indices = share_matched_indices
         self.alpha = alpha
         self.gamma = gamma
+
+    def _get_train_targets(self, targets):
+        if not self.class_agnostic_train:
+            return targets
+
+        agnostic_targets = copy.deepcopy(targets)
+        for t in agnostic_targets:
+            t["labels"] = torch.zeros_like(t["labels"])
+        return agnostic_targets
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert 'pred_logits' in outputs
@@ -152,15 +163,17 @@ class RTDETRCriterionv2(nn.Module):
             torch.distributed.all_reduce(num_boxes)
         num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
         
+        train_targets = self._get_train_targets(targets)
+
         # Retrieve the matching between the outputs of the last layer and the targets
-        matched = self.matcher(outputs_without_aux, targets)
+        matched = self.matcher(outputs_without_aux, train_targets)
         indices = matched['indices']
 
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            meta = self.get_loss_meta_info(loss, outputs, targets, indices)            
-            l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes, **meta)
+            meta = self.get_loss_meta_info(loss, outputs, train_targets, indices)            
+            l_dict = self.get_loss(loss, outputs, train_targets, indices, num_boxes, **meta)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
 
@@ -168,11 +181,11 @@ class RTDETRCriterionv2(nn.Module):
         if 'aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 if not self.share_matched_indices:
-                    matched = self.matcher(aux_outputs, targets)
+                    matched = self.matcher(aux_outputs, train_targets)
                     indices = matched['indices']
                 for loss in self.losses:
-                    meta = self.get_loss_meta_info(loss, aux_outputs, targets, indices)
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **meta)
+                    meta = self.get_loss_meta_info(loss, aux_outputs, train_targets, indices)
+                    l_dict = self.get_loss(loss, aux_outputs, train_targets, indices, num_boxes, **meta)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                     l_dict = {k + f'_aux_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
@@ -180,12 +193,12 @@ class RTDETRCriterionv2(nn.Module):
         # In case of cdn auxiliary losses. For rtdetr
         if 'dn_aux_outputs' in outputs:
             assert 'dn_meta' in outputs, ''
-            indices = self.get_cdn_matched_indices(outputs['dn_meta'], targets)
+            indices = self.get_cdn_matched_indices(outputs['dn_meta'], train_targets)
             dn_num_boxes = num_boxes * outputs['dn_meta']['dn_num_group']
             for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
                 for loss in self.losses:
-                    meta = self.get_loss_meta_info(loss, aux_outputs, targets, indices)
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, dn_num_boxes, **meta)
+                    meta = self.get_loss_meta_info(loss, aux_outputs, train_targets, indices)
+                    l_dict = self.get_loss(loss, aux_outputs, train_targets, indices, dn_num_boxes, **meta)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                     l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
@@ -197,14 +210,12 @@ class RTDETRCriterionv2(nn.Module):
             if class_agnostic:
                 orig_num_classes = self.num_classes
                 self.num_classes = 1
-                enc_targets = copy.deepcopy(targets)
-                for t in enc_targets:
-                    t['labels'] = torch.zeros_like(t["labels"])
+                enc_targets = self._get_train_targets(targets)
             else:
-                enc_targets = targets
+                enc_targets = train_targets
 
             for i, aux_outputs in enumerate(outputs['enc_aux_outputs']):
-                matched = self.matcher(aux_outputs, targets)
+                matched = self.matcher(aux_outputs, enc_targets)
                 indices = matched['indices']
                 for loss in self.losses:
                     meta = self.get_loss_meta_info(loss, aux_outputs, enc_targets, indices)

@@ -65,6 +65,7 @@ class BaseConfig(object):
         self.find_unused_parameters :bool = None
         self.freeze_mode: str = ''
         self.freeze_modules: List[str] = None
+        self.class_agnostic_train: bool = False
 
         self.seed :int = None
         self.print_freq :int = None 
