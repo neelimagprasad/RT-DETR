@@ -44,7 +44,7 @@ optimizer:
 
 lr_scheduler:
   type: MultiStepLR
-  milestones: [120, 240, 320]
+  milestones: [40, 80, 120]
   gamma: 0.2
 
 # Use a longer warmup and later LR drops for the larger 400-epoch training run.
