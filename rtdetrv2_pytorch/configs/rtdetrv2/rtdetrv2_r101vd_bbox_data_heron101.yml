@@ -36,11 +36,11 @@ optimizer:
   params:
     -
       params: '^(?=.*backbone)(?!.*norm|bn).*$'
-      lr: 0.000015
+      lr: 0.00001
     -
       params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
       weight_decay: 0.
-  lr: 0.00015
+  lr: 0.0002
 
 lr_scheduler:
   type: MultiStepLR
