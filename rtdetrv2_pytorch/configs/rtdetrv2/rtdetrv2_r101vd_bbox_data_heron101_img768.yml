@@ -1,0 +1,41 @@
+__include__: [
+  './rtdetrv2_r101vd_bbox_data_heron101.yml',
+]
+
+output_dir: ./output/rtdetrv2_r101vd_bbox_data_heron101_img768_tuned
+
+eval_spatial_size: [768, 768]
+
+optimizer:
+  params:
+    -
+      params: '^(?=.*backbone)(?!.*norm|bn).*$'
+      lr: 0.000012
+    -
+      params: '^(?=.*(?:encoder|decoder))(?=.*(?:norm|bn)).*$'
+      weight_decay: 0.
+  lr: 0.00012
+
+lr_warmup_scheduler:
+  warmup_duration: 200
+
+train_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [768, 768]}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+
+val_dataloader:
+  dataset:
+    transforms:
+      ops:
+        - {type: Resize, size: [768, 768]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
