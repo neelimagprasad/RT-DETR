@@ -4,7 +4,9 @@ Fine-tuning Heron 101 on construction documents to improve object detection boun
 
 ## Overview
 
-This repository adapts RT-DETR to fine-tune the Heron 101 model on construction document pages. The main goal is to improve object detection localization so bounding boxes more accurately capture the target regions in architecutre and construction documents. The goal is to capture both drawings and legends, notes and schedules with one unified model. 
+RT-DETR is a real-time transformer-based object detector, and this repository uses the RT-DETRv2 PyTorch codebase as the training and evaluation framework. Docling is a document understanding project that uses layout detection models to identify regions such as figures, tables, text blocks, and other structural elements on document pages.
+
+Docling Heron 101 is the document-layout detection model used here as the starting point for fine-tuning. In this repo, Hugging Face Heron 101 weights are converted into the RT-DETRv2 format and then fine-tuned on construction document pages so the detector places tighter, more useful bounding boxes around drawings, legends, notes, schedules, and other document regions.
 
 ## Key Results
 
