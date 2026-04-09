@@ -1,4 +1,4 @@
-## `rtdetrv2_pytorch/dataset/bbox_data/`
+## Construction Document Dataset Guide
 
 This folder contains the construction document dataset used for Heron 101 fine-tuning. It stores rendered page images plus COCO-format annotation files for training and evaluation.
 
