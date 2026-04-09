@@ -1,20 +1,10 @@
-# Project Title
+# Fine-Tuning Docling
 
-One-sentence project description.
+Fine-tuning Heron 101 on construction documents to improve object detection bounding box placement.
 
 ## Overview
 
-Short summary of:
-- what this repository does
-- what problem it solves
-- what makes this version different from the original upstream project
-
-## Repository Status
-
-Current state of the project:
-- active / experimental / production-ready
-- what is finished
-- what is still in progress
+This repository adapts RT-DETR to fine-tune the Heron 101 model on construction document pages. The main goal is to improve object detection localization so bounding boxes more accurately capture the target regions in architecutre and construction documents. The goal is to capture both drawings and legends, notes and schedules with one unified model. 
 
 ## Key Results
 
@@ -25,17 +15,6 @@ Suggested things to include:
 - what metric was used
 - whether evaluation is class-aware or class-agnostic
 - which checkpoint/config produced the best result
-
-## What Changed From Upstream
-
-Describe the major customizations made in this fork.
-
-Suggested subsections:
-- dataset changes
-- training configuration changes
-- evaluation changes
-- export / deployment changes
-- utility scripts added
 
 ## Repository Structure
 
@@ -50,16 +29,11 @@ Example format:
 
 ## Dataset
 
-Describe the dataset used in this repo.
+This project uses a custom COCO-style construction document dataset built from rendered PDF pages. The current annotation files contain `358` train images with `3,206` annotations and `30` test images with `199` annotations across `17` categories.
 
-Suggested things to include:
-- dataset purpose
-- image/document type
-- number of train/validation/test images
-- number of annotations
-- category count
-- annotation format
-- how the split was created
+The images live under `rtdetrv2_pytorch/dataset/bbox_data/images_train` and `rtdetrv2_pytorch/dataset/bbox_data/images_test`, and the COCO JSON files live under `rtdetrv2_pytorch/dataset/bbox_data/annotations`.
+
+For details on how to inspect, edit, or visualize the dataset and its annotations, see the [dataset README](rtdetrv2_pytorch/dataset/bbox_data/README.md).
 
 ## Training Setup
 
